@@ -13,9 +13,9 @@ import type {
 } from "./types";
 
 const SAMPLE_PLECO_TEXT = `// term1/greetings
-你好	ni3 hao3	hello
-谢谢	xie4 xie5	thanks
-朋友	peng2 you5	friend`;
+你好\tni3 hao3\thello
+谢谢\txie4 xie5\tthanks
+朋友\tpeng2 you5\tfriend`;
 
 const DECKS_STORAGE_KEY = "pleco-flash-card-decks";
 const RESULTS_STORAGE_KEY = "pleco-flash-card-results";
@@ -27,13 +27,13 @@ const FIELDS: { key: FlashcardField; label: string }[] = [
 ];
 const ALL_FIELDS_VISIBLE: FieldVisibility = { hanzi: true, pinyin: true, english: true };
 
+type AppPage = "decks" | "test" | "results";
 type ScribblePoint = { x: number; y: number };
 type ScribbleStroke = ScribblePoint[];
 
 function createDefaultFront(): FieldVisibility {
   return { hanzi: true, pinyin: false, english: false };
 }
-
 
 function readJson<T>(key: string, fallback: T): T {
   try {
@@ -109,6 +109,7 @@ function buildStudyResult(
 }
 
 function App() {
+  const [activePage, setActivePage] = useState<AppPage>("decks");
   const [sourceText, setSourceText] = useState(SAMPLE_PLECO_TEXT);
   const [cards, setCards] = useState<Flashcard[]>([]);
   const [savedDecks, setSavedDecks] = useState<SavedDeck[]>(readSavedDecks);
@@ -116,6 +117,7 @@ function App() {
   const [starredCardIds, setStarredCardIds] = useState<string[]>(readStarredCardIds);
   const [gradedCards, setGradedCards] = useState<Record<string, FlashcardGrade>>({});
   const [latestResult, setLatestResult] = useState<StudySessionResult | null>(null);
+  const [selectedDeckId, setSelectedDeckId] = useState<string | null>(null);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [isFlipped, setIsFlipped] = useState(false);
   const [frontFields, setFrontFields] = useState<FieldVisibility>(createDefaultFront);
@@ -130,6 +132,7 @@ function App() {
   const visibleFields = isFlipped ? ALL_FIELDS_VISIBLE : frontFields;
   const currentGrade = currentCard ? gradedCards[currentCard.id] : undefined;
   const isLastCard = cards.length > 0 && currentIndex === cards.length - 1;
+  const selectedDeck = savedDecks.find((deck) => deck.id === selectedDeckId) ?? savedDecks[0];
 
   function resetCardView() {
     setIsFlipped(false);
@@ -144,10 +147,21 @@ function App() {
     resetCardView();
   }
 
-  function importParsedCards() {
-    setCards(parsedDeck.cards);
+  function startStudy(deck: SavedDeck) {
+    setCards(deck.cards);
+    setSelectedDeckId(deck.id);
     setCurrentIndex(0);
     resetStudySession();
+    setActivePage("test");
+  }
+
+  function studyImportedCards() {
+    if (parsedDeck.cards.length === 0) return;
+    setCards(parsedDeck.cards);
+    setSelectedDeckId(null);
+    setCurrentIndex(0);
+    resetStudySession();
+    setActivePage("test");
   }
 
   function handleUpload(event: ChangeEvent<HTMLInputElement>) {
@@ -159,41 +173,35 @@ function App() {
     });
   }
 
-  function saveDeck() {
-    if (cards.length === 0) return;
+  function saveDeckFromCards(cardsToSave: Flashcard[], name = createDeckName(cardsToSave)): SavedDeck | null {
+    if (cardsToSave.length === 0) return null;
 
     const newDeck: SavedDeck = {
       id: crypto.randomUUID(),
-      name: createDeckName(cards),
+      name,
       createdAt: new Date().toISOString(),
-      cards,
+      cards: cardsToSave,
     };
     const nextDecks = [newDeck, ...savedDecks];
     setSavedDecks(nextDecks);
+    setSelectedDeckId(newDeck.id);
     writeJson(DECKS_STORAGE_KEY, nextDecks);
+    return newDeck;
   }
 
-  function loadDeck(deck: SavedDeck) {
-    setCards(deck.cards);
-    setCurrentIndex(0);
-    resetStudySession();
+  function saveImportedDeck() {
+    saveDeckFromCards(parsedDeck.cards);
+  }
+
+  function saveActiveDeck() {
+    saveDeckFromCards(cards);
   }
 
   function deleteDeck(deckId: string) {
     const nextDecks = savedDecks.filter((deck) => deck.id !== deckId);
     setSavedDecks(nextDecks);
+    setSelectedDeckId((current) => (current === deckId ? nextDecks[0]?.id ?? null : current));
     writeJson(DECKS_STORAGE_KEY, nextDecks);
-  }
-
-  function deleteCard(cardId: string) {
-    const nextCards = cards.filter((card) => card.id !== cardId);
-    setCards(nextCards);
-    setCurrentIndex((index) => Math.min(index, Math.max(nextCards.length - 1, 0)));
-    setGradedCards((current) => {
-      const next = { ...current };
-      delete next[cardId];
-      return next;
-    });
   }
 
   function updateFieldVisibility(field: FlashcardField) {
@@ -213,6 +221,7 @@ function App() {
     setLatestResult(result);
     setSavedResults(nextResults);
     writeJson(RESULTS_STORAGE_KEY, nextResults);
+    setActivePage("results");
   }
 
   function gradeCard(grade: FlashcardGrade) {
@@ -237,20 +246,9 @@ function App() {
   }
 
   function createDeckFromIncorrect(result: StudySessionResult) {
-    if (result.incorrectCards.length === 0) return;
-
-    const newDeck: SavedDeck = {
-      id: crypto.randomUUID(),
-      name: `Review: ${result.deckName}`,
-      createdAt: new Date().toISOString(),
-      cards: result.incorrectCards,
-    };
-    const nextDecks = [newDeck, ...savedDecks];
-    setSavedDecks(nextDecks);
-    writeJson(DECKS_STORAGE_KEY, nextDecks);
-    setCards(result.incorrectCards);
-    setCurrentIndex(0);
-    resetStudySession();
+    const newDeck = saveDeckFromCards(result.incorrectCards, `Review: ${result.deckName}`);
+    if (!newDeck) return;
+    startStudy(newDeck);
   }
 
   function toggleStar(card: Flashcard) {
@@ -292,46 +290,155 @@ function App() {
     <main className="app-shell">
       <section className="hero-card">
         <p className="eyebrow">Pleco .txt trainer</p>
-        <h1>Import Pleco flashcards and study them in the browser.</h1>
+        <h1>Import, study, and review Chinese flashcard decks.</h1>
         <p>
-          Paste or upload a Pleco text export, choose which fields appear on each card side,
-          and click Hanzi characters for dictionary lookups.
+          Manage decks, start focused tests, and turn missed cards into new review decks.
         </p>
       </section>
 
-      <section className="workspace-grid">
+      <nav className="page-nav" aria-label="Flashcard app pages">
+        <button type="button" className={activePage === "decks" ? "is-active" : ""} onClick={() => setActivePage("decks")}>
+          Decks
+        </button>
+        <button type="button" className={activePage === "test" ? "is-active" : ""} onClick={() => setActivePage("test")}>
+          Test
+        </button>
+        <button type="button" className={activePage === "results" ? "is-active" : ""} onClick={() => setActivePage("results")}>
+          Results
+        </button>
+      </nav>
+
+      {activePage === "decks" && (
+        <DecksPage
+          sourceText={sourceText}
+          parsedCards={parsedDeck.cards}
+          parseErrors={parsedDeck.errors}
+          savedDecks={savedDecks}
+          selectedDeck={selectedDeck}
+          onSourceTextChange={setSourceText}
+          onUpload={handleUpload}
+          onUseSample={() => setSourceText(SAMPLE_PLECO_TEXT)}
+          onSaveImportedDeck={saveImportedDeck}
+          onStudyImportedDeck={studyImportedCards}
+          onSelectDeck={(deck) => setSelectedDeckId(deck.id)}
+          onStudyDeck={startStudy}
+          onDeleteDeck={deleteDeck}
+        />
+      )}
+
+      {activePage === "test" && (
+        <TestPage
+          cards={cards}
+          savedDecks={savedDecks}
+          currentCard={currentCard}
+          currentIndex={currentIndex}
+          currentGrade={currentGrade}
+          isFlipped={isFlipped}
+          isLastCard={isLastCard}
+          latestResult={latestResult}
+          frontFields={frontFields}
+          visibleFields={visibleFields}
+          selectedCharacter={selectedCharacter}
+          isStudyFullscreen={isStudyFullscreen}
+          isScribbleEnabled={isScribbleEnabled}
+          scribbleStrokes={activeScribble ? [...scribbleStrokes, activeScribble] : scribbleStrokes}
+          activeScribble={activeScribble}
+          onStartStudy={startStudy}
+          onUpdateFieldVisibility={updateFieldVisibility}
+          onToggleStar={toggleStar}
+          isCardStarred={isCardStarred}
+          onToggleScribble={toggleScribble}
+          onClearInk={() => setScribbleStrokes([])}
+          onToggleFullscreen={() => setIsStudyFullscreen((fullscreen) => !fullscreen)}
+          onSaveActiveDeck={saveActiveDeck}
+          onSelectCharacter={setSelectedCharacter}
+          onStartScribble={startScribble}
+          onContinueScribble={continueScribble}
+          onFinishScribble={finishScribble}
+          onGradeCard={gradeCard}
+          onMoveCard={moveCard}
+          onFlip={() => setIsFlipped((flipped) => !flipped)}
+          onShuffle={shuffleDeck}
+          onCreateIncorrectDeck={createDeckFromIncorrect}
+        />
+      )}
+
+      {activePage === "results" && (
+        <ResultsPage
+          results={savedResults}
+          latestResultId={latestResult?.id}
+          onCreateIncorrectDeck={createDeckFromIncorrect}
+        />
+      )}
+    </main>
+  );
+}
+
+function DecksPage({
+  sourceText,
+  parsedCards,
+  parseErrors,
+  savedDecks,
+  selectedDeck,
+  onSourceTextChange,
+  onUpload,
+  onUseSample,
+  onSaveImportedDeck,
+  onStudyImportedDeck,
+  onSelectDeck,
+  onStudyDeck,
+  onDeleteDeck,
+}: {
+  sourceText: string;
+  parsedCards: Flashcard[];
+  parseErrors: Array<{ lineNumber: number; message: string }>;
+  savedDecks: SavedDeck[];
+  selectedDeck?: SavedDeck;
+  onSourceTextChange: (value: string) => void;
+  onUpload: (event: ChangeEvent<HTMLInputElement>) => void;
+  onUseSample: () => void;
+  onSaveImportedDeck: () => void;
+  onStudyImportedDeck: () => void;
+  onSelectDeck: (deck: SavedDeck) => void;
+  onStudyDeck: (deck: SavedDeck) => void;
+  onDeleteDeck: (deckId: string) => void;
+}) {
+  return (
+    <section className="page-section">
+      <div className="workspace-grid">
         <section className="panel import-panel" aria-labelledby="import-heading">
           <div className="panel-heading">
             <div>
-              <p className="eyebrow">Step 1</p>
+              <p className="eyebrow">Deck library</p>
               <h2 id="import-heading">Import a Pleco .txt deck</h2>
             </div>
             <label className="file-button">
               Upload .txt
-              <input type="file" accept=".txt,text/plain" onChange={handleUpload} />
+              <input type="file" accept=".txt,text/plain" onChange={onUpload} />
             </label>
           </div>
 
           <textarea
             value={sourceText}
-            onChange={(event) => setSourceText(event.target.value)}
+            onChange={(event) => onSourceTextChange(event.target.value)}
             aria-label="Pleco text input"
             spellCheck={false}
           />
 
           <div className="action-row">
-            <button type="button" onClick={() => setSourceText(SAMPLE_PLECO_TEXT)}>
-              Use sample
+            <button type="button" onClick={onUseSample}>Use sample</button>
+            <button type="button" className="primary" onClick={onSaveImportedDeck} disabled={parsedCards.length === 0}>
+              Save imported deck
             </button>
-            <button type="button" className="primary" onClick={importParsedCards} disabled={parsedDeck.cards.length === 0}>
-              Import {parsedDeck.cards.length} cards
+            <button type="button" onClick={onStudyImportedDeck} disabled={parsedCards.length === 0}>
+              Study imported deck
             </button>
           </div>
 
-          {parsedDeck.errors.length > 0 && (
+          {parseErrors.length > 0 && (
             <div className="error-list" role="alert">
-              <strong>{parsedDeck.errors.length} line{parsedDeck.errors.length === 1 ? "" : "s"} need attention</strong>
-              {parsedDeck.errors.map((error) => (
+              <strong>{parseErrors.length} line{parseErrors.length === 1 ? "" : "s"} need attention</strong>
+              {parseErrors.map((error) => (
                 <p key={`${error.lineNumber}-${error.message}`}>
                   Line {error.lineNumber}: {error.message}
                 </p>
@@ -343,66 +450,175 @@ function App() {
         <section className="panel" aria-labelledby="preview-heading">
           <div className="panel-heading">
             <div>
-              <p className="eyebrow">Step 2</p>
-              <h2 id="preview-heading">Preview cards</h2>
+              <p className="eyebrow">Import preview</p>
+              <h2 id="preview-heading">Parsed cards</h2>
             </div>
-            <span className="count-pill">{parsedDeck.cards.length} parsed</span>
+            <span className="count-pill">{parsedCards.length} parsed</span>
           </div>
+          <CardTable cards={parsedCards.slice(0, 8)} />
+          {parsedCards.length > 8 && <p className="muted">Showing the first 8 parsed cards.</p>}
+        </section>
+      </div>
 
-          <div className="table-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th>Hanzi</th>
-                  <th>Pinyin</th>
-                  <th>English</th>
-                  <th>Category</th>
-                </tr>
-              </thead>
-              <tbody>
-                {parsedDeck.cards.slice(0, 8).map((card) => (
-                  <tr key={card.id}>
-                    <td>{card.hanzi}</td>
-                    <td>{formatPinyinForDisplay(card.pinyin)}</td>
-                    <td>{card.english}</td>
-                    <td>{card.category}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+      <div className="workspace-grid deck-library-grid">
+        <section className="panel" aria-labelledby="saved-decks-heading">
+          <div className="panel-heading">
+            <div>
+              <p className="eyebrow">Saved decks</p>
+              <h2 id="saved-decks-heading">Choose a deck to view</h2>
+            </div>
+            <span className="count-pill">{savedDecks.length} decks</span>
           </div>
-          {parsedDeck.cards.length > 8 && <p className="muted">Showing the first 8 parsed cards.</p>}
+          {savedDecks.length === 0 ? (
+            <p className="muted">Import and save a deck to build your library.</p>
+          ) : (
+            <div className="deck-list">
+              {savedDecks.map((deck) => (
+                <div className="saved-deck" key={deck.id}>
+                  <button type="button" className="deck-title-button" onClick={() => onSelectDeck(deck)}>
+                    <strong>{deck.name}</strong>
+                    <span>{deck.cards.length} cards</span>
+                  </button>
+                  <button type="button" onClick={() => onStudyDeck(deck)}>Study</button>
+                  <button type="button" className="ghost-danger" onClick={() => onDeleteDeck(deck.id)}>Delete</button>
+                </div>
+              ))}
+            </div>
+          )}
+        </section>
+
+        <section className="panel" aria-labelledby="deck-detail-heading">
+          <div className="panel-heading">
+            <div>
+              <p className="eyebrow">Deck detail</p>
+              <h2 id="deck-detail-heading">{selectedDeck ? selectedDeck.name : "No deck selected"}</h2>
+            </div>
+            {selectedDeck && <button type="button" className="primary" onClick={() => onStudyDeck(selectedDeck)}>Start test</button>}
+          </div>
+          {selectedDeck ? <CardTable cards={selectedDeck.cards} /> : <p className="muted">Select a saved deck to view its cards.</p>}
+        </section>
+      </div>
+    </section>
+  );
+}
+
+function TestPage({
+  cards,
+  savedDecks,
+  currentCard,
+  currentIndex,
+  currentGrade,
+  isFlipped,
+  isLastCard,
+  latestResult,
+  frontFields,
+  visibleFields,
+  selectedCharacter,
+  isStudyFullscreen,
+  isScribbleEnabled,
+  scribbleStrokes,
+  activeScribble,
+  onStartStudy,
+  onUpdateFieldVisibility,
+  onToggleStar,
+  isCardStarred,
+  onToggleScribble,
+  onClearInk,
+  onToggleFullscreen,
+  onSaveActiveDeck,
+  onSelectCharacter,
+  onStartScribble,
+  onContinueScribble,
+  onFinishScribble,
+  onGradeCard,
+  onMoveCard,
+  onFlip,
+  onShuffle,
+  onCreateIncorrectDeck,
+}: {
+  cards: Flashcard[];
+  savedDecks: SavedDeck[];
+  currentCard?: Flashcard;
+  currentIndex: number;
+  currentGrade?: FlashcardGrade;
+  isFlipped: boolean;
+  isLastCard: boolean;
+  latestResult: StudySessionResult | null;
+  frontFields: FieldVisibility;
+  visibleFields: FieldVisibility;
+  selectedCharacter: string | null;
+  isStudyFullscreen: boolean;
+  isScribbleEnabled: boolean;
+  scribbleStrokes: ScribbleStroke[];
+  activeScribble: ScribbleStroke | null;
+  onStartStudy: (deck: SavedDeck) => void;
+  onUpdateFieldVisibility: (field: FlashcardField) => void;
+  onToggleStar: (card: Flashcard) => void;
+  isCardStarred: (card: Flashcard) => boolean;
+  onToggleScribble: () => void;
+  onClearInk: () => void;
+  onToggleFullscreen: () => void;
+  onSaveActiveDeck: () => void;
+  onSelectCharacter: (character: string) => void;
+  onStartScribble: (event: ReactPointerEvent<SVGSVGElement>) => void;
+  onContinueScribble: (event: ReactPointerEvent<SVGSVGElement>) => void;
+  onFinishScribble: (event: ReactPointerEvent<SVGSVGElement>) => void;
+  onGradeCard: (grade: FlashcardGrade) => void;
+  onMoveCard: (direction: -1 | 1) => void;
+  onFlip: () => void;
+  onShuffle: () => void;
+  onCreateIncorrectDeck: (result: StudySessionResult) => void;
+}) {
+  if (cards.length === 0) {
+    return (
+      <section className="page-section">
+        <section className="panel deck-picker" aria-labelledby="deck-picker-heading">
+          <p className="eyebrow">Start a test</p>
+          <h2 id="deck-picker-heading">Pick a deck</h2>
+          {savedDecks.length === 0 ? (
+            <p className="muted">No saved decks yet. Go to Decks to import one.</p>
+          ) : (
+            <div className="deck-card-grid">
+              {savedDecks.map((deck) => (
+                <article className="deck-card" key={deck.id}>
+                  <h3>{deck.name}</h3>
+                  <p>{deck.cards.length} cards</p>
+                  <button type="button" className="primary" onClick={() => onStartStudy(deck)}>Start test</button>
+                </article>
+              ))}
+            </div>
+          )}
         </section>
       </section>
+    );
+  }
 
+  return (
+    <section className="page-section">
       <section className="workspace-grid study-grid">
         <section className={`panel study-panel ${isStudyFullscreen ? "fullscreen-study" : ""}`} aria-labelledby="study-heading">
           <div className="panel-heading study-heading">
             <div>
-              <p className="eyebrow">Step 3</p>
-              <h2 id="study-heading">Study deck</h2>
+              <p className="eyebrow">Test</p>
+              <h2 id="study-heading">Study active deck</h2>
             </div>
             <div className="study-tools">
-              <button type="button" className={currentCard && isCardStarred(currentCard) ? "star-button is-starred" : "star-button"} onClick={() => currentCard && toggleStar(currentCard)} disabled={!currentCard}>
+              <button type="button" className={currentCard && isCardStarred(currentCard) ? "star-button is-starred" : "star-button"} onClick={() => currentCard && onToggleStar(currentCard)} disabled={!currentCard}>
                 {currentCard && isCardStarred(currentCard) ? "★ Starred" : "☆ Star"}
               </button>
-              <button type="button" onClick={toggleScribble} disabled={cards.length === 0}>
+              <button type="button" onClick={onToggleScribble} disabled={cards.length === 0}>
                 {isScribbleEnabled ? "Stop scribbling" : "Scribble"}
               </button>
-              <button type="button" onClick={() => setScribbleStrokes([])} disabled={scribbleStrokes.length === 0 && !activeScribble}>
-                Clear ink
-              </button>
-              <button type="button" onClick={() => setIsStudyFullscreen((fullscreen) => !fullscreen)} disabled={cards.length === 0}>
+              <button type="button" onClick={onClearInk} disabled={scribbleStrokes.length === 0 && !activeScribble}>Clear ink</button>
+              <button type="button" onClick={onToggleFullscreen} disabled={cards.length === 0}>
                 {isStudyFullscreen ? "Exit full screen" : "Full screen"}
               </button>
-              <button type="button" onClick={saveDeck} disabled={cards.length === 0}>
-                Save deck
-              </button>
+              <button type="button" onClick={onSaveActiveDeck} disabled={cards.length === 0}>Save deck</button>
             </div>
           </div>
 
           <div className="settings-grid single-setting">
-            <FieldSelector title="Front shows" fields={frontFields} onToggle={updateFieldVisibility} />
+            <FieldSelector title="Front shows" fields={frontFields} onToggle={onUpdateFieldVisibility} />
             <p className="back-display-note">Back always shows Hanzi, Pinyin, and English.</p>
           </div>
 
@@ -411,32 +627,30 @@ function App() {
               {currentCard ? (
                 <>
                   <p className="card-progress">Card {currentIndex + 1} of {cards.length}</p>
-                  {currentCard && isCardStarred(currentCard) && <span className="card-star">★ Starred</span>}
+                  {isCardStarred(currentCard) && <span className="card-star">★ Starred</span>}
                   {FIELDS.filter(({ key }) => visibleFields[key]).map(({ key, label }) => (
                     <CardField
                       key={key}
                       label={label}
                       value={getCardField(currentCard, key)}
                       isHanzi={key === "hanzi"}
-                      onSelectCharacter={setSelectedCharacter}
+                      onSelectCharacter={onSelectCharacter}
                     />
                   ))}
-                  {!FIELDS.some(({ key }) => visibleFields[key]) && (
-                    <p className="muted">Select at least one field for this side.</p>
-                  )}
+                  {!FIELDS.some(({ key }) => visibleFields[key]) && <p className="muted">Select at least one field for this side.</p>}
                 </>
               ) : (
-                <p className="empty-state">Import cards to begin studying.</p>
+                <p className="empty-state">Pick a deck to begin studying.</p>
               )}
             </article>
 
             {currentCard && (
               <ScribbleLayer
                 isEnabled={isScribbleEnabled}
-                strokes={activeScribble ? [...scribbleStrokes, activeScribble] : scribbleStrokes}
-                onPointerDown={startScribble}
-                onPointerMove={continueScribble}
-                onPointerUp={finishScribble}
+                strokes={scribbleStrokes}
+                onPointerDown={onStartScribble}
+                onPointerMove={onContinueScribble}
+                onPointerUp={onFinishScribble}
               />
             )}
           </div>
@@ -446,122 +660,127 @@ function App() {
           {currentCard && (
             <div className="grade-panel" aria-label="Card grade controls">
               <p>{currentGrade ? `Already marked ${currentGrade}. Choose again to continue.` : "Choose correct or incorrect to continue."}</p>
-              <button type="button" className={currentGrade === "correct" ? "grade-correct is-selected" : "grade-correct"} onClick={() => gradeCard("correct")}>
+              <button type="button" className={currentGrade === "correct" ? "grade-correct is-selected" : "grade-correct"} onClick={() => onGradeCard("correct")}>
                 {isLastCard ? "Correct and finish" : "Correct"}
               </button>
-              <button type="button" className={currentGrade === "incorrect" ? "grade-incorrect is-selected" : "grade-incorrect"} onClick={() => gradeCard("incorrect")}>
+              <button type="button" className={currentGrade === "incorrect" ? "grade-incorrect is-selected" : "grade-incorrect"} onClick={() => onGradeCard("incorrect")}>
                 {isLastCard ? "Incorrect and finish" : "Incorrect"}
               </button>
             </div>
           )}
 
           <div className="action-row card-controls">
-            <button type="button" onClick={() => moveCard(-1)} disabled={cards.length === 0}>Previous</button>
-            <button type="button" className="primary" onClick={() => setIsFlipped((flipped) => !flipped)} disabled={cards.length === 0}>
-              {isFlipped ? "Show front" : "Flip card"}
-            </button>
-            <button type="button" onClick={shuffleDeck} disabled={cards.length < 2}>Shuffle</button>
+            <button type="button" onClick={() => onMoveCard(-1)} disabled={cards.length === 0}>Previous</button>
+            <button type="button" className="primary" onClick={onFlip} disabled={cards.length === 0}>{isFlipped ? "Show front" : "Flip card"}</button>
+            <button type="button" onClick={onShuffle} disabled={cards.length < 2}>Shuffle</button>
           </div>
 
-          {latestResult && (
-            <ResultSummary result={latestResult} onCreateIncorrectDeck={createDeckFromIncorrect} />
-          )}
+          {latestResult && <ResultSummary result={latestResult} onCreateIncorrectDeck={onCreateIncorrectDeck} />}
         </section>
 
         <aside className="panel side-panel" aria-labelledby="lookup-heading">
-          <div>
-            <p className="eyebrow">Character tools</p>
-            <h2 id="lookup-heading">Hanzi inspector</h2>
-          </div>
-          {selectedCharacter && currentCard ? (
-            <div className="character-card">
-              <span className="big-character">{selectedCharacter}</span>
-              <p><strong>Card context:</strong> {currentCard.hanzi}</p>
-              <p><strong>Pinyin context:</strong> {formatPinyinForDisplay(currentCard.pinyin)}</p>
-              <p><strong>In-card meaning:</strong> {currentCard.english}</p>
-              <div className="stroke-order-card">
-                <strong>Stroke order</strong>
-                <StrokeOrderDiagram character={selectedCharacter} />
-              </div>
-              <p className="definition-note">
-                Embedded dictionary definitions need a bundled dictionary or backend API; external dictionaries are linked below for accurate lookup.
-              </p>
-              <a href={`https://www.mdbg.net/chinese/dictionary?page=worddict&wdrst=0&wdqb=${encodeURIComponent(selectedCharacter)}`} target="_blank" rel="noreferrer">
-                Open in MDBG
-              </a>
-              <a href={`https://www.archchinese.com/chinese_english_dictionary.html?find=${encodeURIComponent(selectedCharacter)}`} target="_blank" rel="noreferrer">
-                Open in Arch Chinese
-              </a>
-              <a href={`https://www.yellowbridge.com/chinese/dictionary.php?word=${encodeURIComponent(selectedCharacter)}`} target="_blank" rel="noreferrer">
-                Open in YellowBridge
-              </a>
-            </div>
-          ) : (
-            <p className="muted">Click an individual Hanzi character on a study card to view definition links.</p>
-          )}
-
-          <div className="saved-decks">
-            <h3>Saved decks</h3>
-            {savedDecks.length === 0 ? (
-              <p className="muted">Saved decks stay in this browser.</p>
-            ) : (
-              savedDecks.map((deck) => (
-                <div className="saved-deck" key={deck.id}>
-                  <div>
-                    <strong>{deck.name}</strong>
-                    <span>{deck.cards.length} cards</span>
-                  </div>
-                  <button type="button" onClick={() => loadDeck(deck)}>Load</button>
-                  <button type="button" className="ghost-danger" onClick={() => deleteDeck(deck.id)}>Delete</button>
-                </div>
-              ))
-            )}
-          </div>
-
-          <div className="saved-results">
-            <h3>Saved results</h3>
-            {savedResults.length === 0 ? (
-              <p className="muted">Completed deck results will appear here.</p>
-            ) : (
-              savedResults.slice(0, 4).map((result) => (
-                <div className="saved-result" key={result.id}>
-                  <strong>{result.deckName}</strong>
-                  <span>{result.correctCount}/{result.totalCards} correct · {result.incorrectCount} missed</span>
-                  <button type="button" onClick={() => createDeckFromIncorrect(result)} disabled={result.incorrectCount === 0}>
-                    Review missed
-                  </button>
-                </div>
-              ))
-            )}
-          </div>
+          <HanziInspector selectedCharacter={selectedCharacter} currentCard={currentCard} />
         </aside>
       </section>
+    </section>
+  );
+}
 
-      {cards.length > 0 && (
-        <section className="panel active-deck" aria-labelledby="active-deck-heading">
-          <div className="panel-heading">
-            <div>
-              <p className="eyebrow">Active deck</p>
-              <h2 id="active-deck-heading">Manage imported cards</h2>
-            </div>
-            <span className="count-pill">{cards.length} active</span>
+function ResultsPage({
+  results,
+  latestResultId,
+  onCreateIncorrectDeck,
+}: {
+  results: StudySessionResult[];
+  latestResultId?: string;
+  onCreateIncorrectDeck: (result: StudySessionResult) => void;
+}) {
+  return (
+    <section className="page-section">
+      <section className="panel" aria-labelledby="results-heading">
+        <div className="panel-heading">
+          <div>
+            <p className="eyebrow">Previous tests</p>
+            <h2 id="results-heading">Results</h2>
           </div>
-          <div className="card-list">
-            {cards.map((card) => (
-              <div className="card-list-item" key={card.id}>
-                <span>{card.hanzi}</span>
-                <span>{formatPinyinForDisplay(card.pinyin)}</span>
-                <span>{card.english}</span>
-                <button type="button" className={isCardStarred(card) ? "star-button is-starred" : "star-button"} onClick={() => toggleStar(card)}>
-                  {isCardStarred(card) ? "★" : "☆"}
-                </button>
-                <button type="button" onClick={() => deleteCard(card.id)}>Remove</button>
-              </div>
+          <span className="count-pill">{results.length} saved</span>
+        </div>
+        {results.length === 0 ? (
+          <p className="muted">Complete a test to save results here.</p>
+        ) : (
+          <div className="results-list">
+            {results.map((result) => (
+              <ResultSummary
+                key={result.id}
+                result={result}
+                isHighlighted={result.id === latestResultId}
+                onCreateIncorrectDeck={onCreateIncorrectDeck}
+              />
             ))}
           </div>
-        </section>
+        )}
+      </section>
+    </section>
+  );
+}
+
+function HanziInspector({ selectedCharacter, currentCard }: { selectedCharacter: string | null; currentCard?: Flashcard }) {
+  return (
+    <>
+      <div>
+        <p className="eyebrow">Character tools</p>
+        <h2 id="lookup-heading">Hanzi inspector</h2>
+      </div>
+      {selectedCharacter && currentCard ? (
+        <div className="character-card">
+          <span className="big-character">{selectedCharacter}</span>
+          <p><strong>Card context:</strong> {currentCard.hanzi}</p>
+          <p><strong>Pinyin context:</strong> {formatPinyinForDisplay(currentCard.pinyin)}</p>
+          <p><strong>In-card meaning:</strong> {currentCard.english}</p>
+          <div className="stroke-order-card">
+            <strong>Stroke order</strong>
+            <StrokeOrderDiagram character={selectedCharacter} />
+          </div>
+          <p className="definition-note">
+            Embedded dictionary definitions need a bundled dictionary or backend API; external dictionaries are linked below for accurate lookup.
+          </p>
+          <a href={`https://www.mdbg.net/chinese/dictionary?page=worddict&wdrst=0&wdqb=${encodeURIComponent(selectedCharacter)}`} target="_blank" rel="noreferrer">Open in MDBG</a>
+          <a href={`https://www.archchinese.com/chinese_english_dictionary.html?find=${encodeURIComponent(selectedCharacter)}`} target="_blank" rel="noreferrer">Open in Arch Chinese</a>
+          <a href={`https://www.yellowbridge.com/chinese/dictionary.php?word=${encodeURIComponent(selectedCharacter)}`} target="_blank" rel="noreferrer">Open in YellowBridge</a>
+        </div>
+      ) : (
+        <p className="muted">Click an individual Hanzi character on a study card to view definition links and stroke order.</p>
       )}
-    </main>
+    </>
+  );
+}
+
+function CardTable({ cards }: { cards: Flashcard[] }) {
+  if (cards.length === 0) return <p className="muted">No cards to show yet.</p>;
+
+  return (
+    <div className="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Hanzi</th>
+            <th>Pinyin</th>
+            <th>English</th>
+            <th>Category</th>
+          </tr>
+        </thead>
+        <tbody>
+          {cards.map((card) => (
+            <tr key={card.id}>
+              <td>{card.hanzi}</td>
+              <td>{formatPinyinForDisplay(card.pinyin)}</td>
+              <td>{card.english}</td>
+              <td>{card.category}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
   );
 }
 
@@ -708,16 +927,18 @@ function StrokeOrderDiagram({ character }: { character: string }) {
 
 function ResultSummary({
   result,
+  isHighlighted = false,
   onCreateIncorrectDeck,
 }: {
   result: StudySessionResult;
+  isHighlighted?: boolean;
   onCreateIncorrectDeck: (result: StudySessionResult) => void;
 }) {
   return (
-    <section className="result-summary" aria-labelledby="result-summary-heading">
+    <section className={`result-summary ${isHighlighted ? "is-highlighted" : ""}`} aria-label={`${result.deckName} result`}>
       <div>
-        <p className="eyebrow">Saved result</p>
-        <h3 id="result-summary-heading">{result.correctCount}/{result.totalCards} correct</h3>
+        <p className="eyebrow">{new Date(result.completedAt).toLocaleString()}</p>
+        <h3>{result.deckName}: {result.correctCount}/{result.totalCards} correct</h3>
       </div>
       <p>{result.incorrectCount} incorrect · {result.starredCards.length} starred in this deck</p>
       {result.incorrectCards.length > 0 ? (

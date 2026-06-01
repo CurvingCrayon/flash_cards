@@ -58,6 +58,86 @@
   text-transform: uppercase;
 }
 
+
+
+.page-nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin: 0 0 24px;
+}
+
+.page-nav button {
+  min-width: 120px;
+}
+
+.page-nav button.is-active {
+  background: linear-gradient(135deg, #2563eb, #7c3aed);
+  border-color: transparent;
+  color: white;
+}
+
+.page-section {
+  display: grid;
+  gap: 24px;
+}
+
+.deck-library-grid {
+  align-items: start;
+}
+
+.deck-list,
+.results-list {
+  display: grid;
+  gap: 12px;
+}
+
+.deck-title-button {
+  border: 0;
+  border-radius: 14px;
+  background: transparent;
+  display: grid;
+  justify-items: start;
+  padding: 0;
+  text-align: left;
+  transform: none;
+}
+
+.deck-title-button:hover {
+  background: transparent;
+  transform: none;
+}
+
+.deck-card-grid {
+  display: grid;
+  gap: 16px;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  margin-top: 20px;
+}
+
+.deck-card {
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  border-radius: 22px;
+  background: rgba(30, 41, 59, 0.72);
+  display: grid;
+  gap: 12px;
+  padding: 18px;
+}
+
+.deck-card h3,
+.deck-card p {
+  margin: 0;
+}
+
+.deck-picker {
+  min-height: 360px;
+}
+
+.result-summary.is-highlighted {
+  border-color: rgba(250, 204, 21, 0.68);
+  box-shadow: 0 0 0 1px rgba(250, 204, 21, 0.18), 0 24px 80px rgba(2, 6, 23, 0.28);
+}
+
 .workspace-grid {
   display: grid;
   grid-template-columns: minmax(0, 1.1fr) minmax(360px, 0.9fr);

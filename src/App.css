@@ -3,9 +3,9 @@
 }
 
 .app-shell {
-  width: min(1180px, calc(100% - 32px));
-  margin: 0 auto;
-  padding: 40px 0;
+  margin-left: 280px;
+  padding: 40px 32px 40px 0;
+  width: min(1180px, calc(100% - 312px));
 }
 
 .hero-card,
@@ -61,14 +61,33 @@
 
 
 .page-nav {
-  display: flex;
-  flex-wrap: wrap;
+  align-content: start;
+  background: rgba(15, 23, 42, 0.92);
+  border: 1px solid rgba(148, 163, 184, 0.26);
+  border-radius: 28px;
+  box-shadow: 0 24px 80px rgba(2, 6, 23, 0.34);
+  display: grid;
   gap: 12px;
-  margin: 0 0 24px;
+  left: 24px;
+  padding: 22px;
+  position: fixed;
+  top: 24px;
+  width: 220px;
+  z-index: 30;
+}
+
+.page-nav strong {
+  color: #f8fafc;
+  display: block;
+  font-size: 1.1rem;
+  margin-bottom: 10px;
 }
 
 .page-nav button {
-  min-width: 120px;
+  justify-content: flex-start;
+  min-width: 0;
+  text-align: left;
+  width: 100%;
 }
 
 .page-nav button.is-active {
@@ -86,8 +105,7 @@
   align-items: start;
 }
 
-.deck-list,
-.results-list {
+.deck-list {
   display: grid;
   gap: 12px;
 }
@@ -521,12 +539,30 @@ th {
   gap: 8px;
 }
 
+.missed-list.compact {
+  max-width: 420px;
+}
+
 .missed-list span {
   border-radius: 999px;
   background: rgba(15, 23, 42, 0.72);
   color: #e0f2fe;
   font-weight: 800;
   padding: 8px 12px;
+}
+
+.results-table-wrap {
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  border-radius: 20px;
+}
+
+.results-table tr.is-highlighted td {
+  background: rgba(250, 204, 21, 0.08);
+}
+
+.results-table td:last-child,
+.results-table th:last-child {
+  text-align: right;
 }
 
 .card-controls {
@@ -641,6 +677,24 @@ th {
 }
 
 @media (max-width: 900px) {
+  .app-shell {
+    margin-left: 0;
+    padding: 140px 16px 32px;
+    width: auto;
+  }
+
+  .page-nav {
+    grid-template-columns: repeat(4, auto);
+    left: 16px;
+    right: 16px;
+    top: 16px;
+    width: auto;
+  }
+
+  .page-nav div {
+    grid-column: 1 / -1;
+  }
+
   .workspace-grid,
   .settings-grid {
     grid-template-columns: 1fr;

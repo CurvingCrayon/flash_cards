@@ -297,6 +297,10 @@ function App() {
       </section>
 
       <nav className="page-nav" aria-label="Flashcard app pages">
+        <div>
+          <p className="eyebrow">Flashcards</p>
+          <strong>Study menu</strong>
+        </div>
         <button type="button" className={activePage === "decks" ? "is-active" : ""} onClick={() => setActivePage("decks")}>
           Decks
         </button>
@@ -657,7 +661,7 @@ function TestPage({
 
           {isScribbleEnabled && <p className="scribble-hint">Scribble mode is on. Draw over the card to practice writing Hanzi.</p>}
 
-          {currentCard && (
+          {currentCard && isFlipped && (
             <div className="grade-panel" aria-label="Card grade controls">
               <p>{currentGrade ? `Already marked ${currentGrade}. Choose again to continue.` : "Choose correct or incorrect to continue."}</p>
               <button type="button" className={currentGrade === "correct" ? "grade-correct is-selected" : "grade-correct"} onClick={() => onGradeCard("correct")}>
@@ -708,19 +712,68 @@ function ResultsPage({
         {results.length === 0 ? (
           <p className="muted">Complete a test to save results here.</p>
         ) : (
-          <div className="results-list">
-            {results.map((result) => (
-              <ResultSummary
-                key={result.id}
-                result={result}
-                isHighlighted={result.id === latestResultId}
-                onCreateIncorrectDeck={onCreateIncorrectDeck}
-              />
-            ))}
-          </div>
+          <ResultsTable
+            results={results}
+            latestResultId={latestResultId}
+            onCreateIncorrectDeck={onCreateIncorrectDeck}
+          />
         )}
       </section>
     </section>
+  );
+}
+
+
+function ResultsTable({
+  results,
+  latestResultId,
+  onCreateIncorrectDeck,
+}: {
+  results: StudySessionResult[];
+  latestResultId?: string;
+  onCreateIncorrectDeck: (result: StudySessionResult) => void;
+}) {
+  return (
+    <div className="table-wrap results-table-wrap">
+      <table className="results-table">
+        <thead>
+          <tr>
+            <th>Completed</th>
+            <th>Deck</th>
+            <th>Score</th>
+            <th>Incorrect</th>
+            <th>Starred</th>
+            <th>Review</th>
+          </tr>
+        </thead>
+        <tbody>
+          {results.map((result) => (
+            <tr className={result.id === latestResultId ? "is-highlighted" : ""} key={result.id}>
+              <td>{new Date(result.completedAt).toLocaleString()}</td>
+              <td>{result.deckName}</td>
+              <td>{result.correctCount}/{result.totalCards}</td>
+              <td>
+                {result.incorrectCards.length > 0 ? (
+                  <div className="missed-list compact">
+                    {result.incorrectCards.map((card) => (
+                      <span key={card.id}>{card.hanzi} · {formatPinyinForDisplay(card.pinyin)}</span>
+                    ))}
+                  </div>
+                ) : (
+                  <span className="muted">None</span>
+                )}
+              </td>
+              <td>{result.starredCards.length}</td>
+              <td>
+                <button type="button" onClick={() => onCreateIncorrectDeck(result)} disabled={result.incorrectCards.length === 0}>
+                  Create review deck
+                </button>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
   );
 }
 
